@@ -1,6 +1,7 @@
 import * as THREE from './vendor/three.module.min.js';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { TransformControls } from './vendor/TransformControls.js';
+import { GLTFLoader } from './vendor/GLTFLoader.js';
 
 const STORAGE_KEY = 'bloxd-motion-studio-project-v1';
 const ALLOWED_INTERPOLATION = new Set(['catmullrom', 'linear', 'step']);
@@ -810,7 +811,7 @@ function changeMode(mode) {
 
 function setCameraView(view) {
   if (!camera || !orbitControls) return;
-  orbitControls.target.set(0, 1.23, 0);
+  orbitControls.target.set(0, 1, 0);
   if (view === 'front') camera.position.set(0, 2.25, 6.6);
   else if (view === 'side') camera.position.set(6.6, 2.25, 0);
   else camera.position.set(4.4, 3.0, 5.5);
@@ -940,144 +941,82 @@ function renderAll() {
 }
 
 // --- Three.js character preview ------------------------------------------------
-function material(color, roughness = 0.82, metalness = 0) {
-  return new THREE.MeshStandardMaterial({ color, roughness, metalness });
-}
+async function buildCharacter() {
+  const loader = new GLTFLoader();
+  const [gltf, skinTexture] = await Promise.all([
+    loader.loadAsync('./assets/bob-classic-rig.glb'),
+    new THREE.TextureLoader().loadAsync('./assets/bob-classic-skin.png'),
+  ]);
+  const avatarRoot = gltf.scene;
+  avatarRoot.name = 'Bob · supplied classic rig';
 
-function makeMesh(partId, parent, size, position, mat, name) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size[0], size[1], size[2]), mat);
-  mesh.position.set(position[0], position[1], position[2]);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.name = name || `${partId}-mesh`;
-  mesh.userData.partId = partId;
-  parent.add(mesh);
-  partMeshes[partId].push(mesh);
-  pickMeshes.push(mesh);
-  return mesh;
-}
+  skinTexture.colorSpace = THREE.SRGBColorSpace;
+  skinTexture.flipY = false;
+  skinTexture.wrapS = THREE.ClampToEdgeWrapping;
+  skinTexture.wrapT = THREE.ClampToEdgeWrapping;
+  skinTexture.magFilter = THREE.NearestFilter;
+  skinTexture.minFilter = THREE.NearestFilter;
+  skinTexture.generateMipmaps = false;
+  skinTexture.needsUpdate = true;
 
-function buildCharacter() {
-  const avatarRoot = new THREE.Group();
-  avatarRoot.name = 'Bob · default Bloxd rig';
+  avatarRoot.traverse((object) => {
+    if (!object.isMesh) return;
+    object.castShadow = true;
+    object.receiveShadow = true;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const mat of materials) {
+      if (!mat) continue;
+      mat.map = skinTexture;
+      mat.color.set(0xffffff);
+      mat.roughness = 1;
+      mat.metalness = 0;
+      mat.alphaTest = Math.max(mat.alphaTest || 0, 0.5);
+      mat.needsUpdate = true;
+    }
+  });
+
+  const sourceBounds = new THREE.Box3().setFromObject(avatarRoot);
+  if (sourceBounds.isEmpty() || !Number.isFinite(sourceBounds.min.y) || !Number.isFinite(sourceBounds.max.y)) {
+    throw new Error('The supplied Bob model has no measurable geometry.');
+  }
+  avatarRoot.position.y -= sourceBounds.min.y;
   scene.add(avatarRoot);
 
-  const torsoAnchor = new THREE.Group();
-  torsoAnchor.position.set(0, 1.38, 0);
-  torsoAnchor.name = 'TorsoNode anchor';
-  avatarRoot.add(torsoAnchor);
-  const torso = new THREE.Group();
-  torso.name = 'TorsoNode motion';
-  torsoAnchor.add(torso);
-  partObjects.torso = torso;
-
-  const headAnchor = new THREE.Group();
-  headAnchor.position.set(0, 0.49, 0);
-  torso.add(headAnchor);
-  const head = new THREE.Group();
-  head.name = 'HeadMesh motion';
-  headAnchor.add(head);
-  partObjects.head = head;
-
-  const leftArmAnchor = new THREE.Group();
-  leftArmAnchor.position.set(-0.49, 0.25, 0);
-  torso.add(leftArmAnchor);
-  const leftArm = new THREE.Group();
-  leftArm.name = 'ArmLeftMesh motion';
-  leftArmAnchor.add(leftArm);
-  partObjects.leftArm = leftArm;
-
-  const rightArmAnchor = new THREE.Group();
-  rightArmAnchor.position.set(0.49, 0.25, 0);
-  torso.add(rightArmAnchor);
-  const rightArm = new THREE.Group();
-  rightArm.name = 'ArmRightMesh motion';
-  rightArmAnchor.add(rightArm);
-  partObjects.rightArm = rightArm;
-
-  const leftLegAnchor = new THREE.Group();
-  leftLegAnchor.position.set(-0.19, -0.55, 0);
-  torso.add(leftLegAnchor);
-  const leftLeg = new THREE.Group();
-  leftLeg.name = 'LegLeftMesh motion';
-  leftLegAnchor.add(leftLeg);
-  partObjects.leftLeg = leftLeg;
-
-  const rightLegAnchor = new THREE.Group();
-  rightLegAnchor.position.set(0.19, -0.55, 0);
-  torso.add(rightLegAnchor);
-  const rightLeg = new THREE.Group();
-  rightLeg.name = 'LegRightMesh motion';
-  rightLegAnchor.add(rightLeg);
-  partObjects.rightLeg = rightLeg;
-
-  const skin = material(0xdba274, 0.93);
-  const skinLight = material(0xeab486, 0.93);
-  const hair = material(0x4c2c20, 0.9);
-  const hairLight = material(0x65402b, 0.9);
-  const hairDark = material(0x382118, 0.93);
-  const hoodie = material(0xb53f3a, 0.9);
-  const hoodieLight = material(0xc34e47, 0.9);
-  const hoodieDark = material(0x87332f, 0.94);
-  const hoodieCord = material(0xe5d3b6, 0.94);
-  const denim = material(0x3f6190, 0.95);
-  const denimLight = material(0x5276a2, 0.94);
-  const denimDark = material(0x2c466c, 0.96);
-  const shoe = material(0x303642, 0.92);
-  const shoeTop = material(0x464d59, 0.9);
-  const eyeWhite = material(0xf7f4e9, 0.55);
-  const iris = material(0x58a7db, 0.48, 0.03);
-  const pupil = material(0x1c2c39, 0.42);
-  const mouth = material(0x5d332b, 0.95);
-
-  // TorsoNode: the hoodie, waist and the shared skeleton pivot.
-  makeMesh('torso', torso, [0.73, 0.82, 0.4], [0, 0.015, 0], hoodie, 'Red hoodie');
-  makeMesh('torso', torso, [0.53, 0.27, 0.25], [0, 0.355, -0.035], hoodieDark, 'Hood');
-  makeMesh('torso', torso, [0.38, 0.16, 0.055], [0, -0.19, 0.222], hoodieDark, 'Hoodie pocket');
-  makeMesh('torso', torso, [0.04, 0.07, 0.03], [-0.12, -0.19, 0.255], hoodieLight, 'Pocket seam left');
-  makeMesh('torso', torso, [0.04, 0.07, 0.03], [0.12, -0.19, 0.255], hoodieLight, 'Pocket seam right');
-  makeMesh('torso', torso, [0.022, 0.19, 0.025], [-0.065, 0.12, 0.212], hoodieCord, 'Drawstring left');
-  makeMesh('torso', torso, [0.022, 0.16, 0.025], [0.065, 0.135, 0.212], hoodieCord, 'Drawstring right');
-  makeMesh('torso', torso, [0.67, 0.16, 0.38], [0, -0.445, 0], denimDark, 'Jeans waist');
-  makeMesh('torso', torso, [0.12, 0.07, 0.025], [0, -0.445, 0.205], material(0x9d8060, 0.9), 'Belt buckle');
-  makeMesh('torso', torso, [0.18, 0.22, 0.2], [0, 0.47, 0], skin, 'Neck');
-
-  // HeadMesh: square brown hair, warm skin, blue eyes and small details.
-  makeMesh('head', head, [0.58, 0.56, 0.5], [0, 0.27, 0], skin, 'Bob head');
-  makeMesh('head', head, [0.61, 0.15, 0.54], [0, 0.59, -0.005], hair, 'Hair cap');
-  makeMesh('head', head, [0.61, 0.14, 0.18], [0, 0.52, 0.19], hairLight, 'Front fringe');
-  makeMesh('head', head, [0.12, 0.29, 0.47], [-0.255, 0.35, -0.005], hair, 'Left side hair');
-  makeMesh('head', head, [0.12, 0.29, 0.47], [0.255, 0.35, -0.005], hairDark, 'Right side hair');
-  makeMesh('head', head, [0.16, 0.05, 0.15], [-0.14, 0.515, 0.21], hairLight, 'Side swept lock');
-  for (const x of [-0.135, 0.135]) {
-    makeMesh('head', head, [0.115, 0.095, 0.025], [x, 0.315, 0.255], eyeWhite, 'Eye white');
-    makeMesh('head', head, [0.062, 0.075, 0.017], [x, 0.315, 0.272], iris, 'Blue eye');
-    makeMesh('head', head, [0.031, 0.05, 0.012], [x + 0.006, 0.315, 0.283], pupil, 'Pupil');
-    makeMesh('head', head, [0.14, 0.027, 0.025], [x, 0.405, 0.26], hairDark, 'Eyebrow');
-  }
-  makeMesh('head', head, [0.075, 0.095, 0.065], [0, 0.23, 0.27], skinLight, 'Nose');
-  makeMesh('head', head, [0.13, 0.022, 0.02], [0, 0.135, 0.257], mouth, 'Smile');
-
-  // Arms are single Bloxd mesh nodes, with the hand included in the same joint.
-  for (const [id, group] of [['leftArm', leftArm], ['rightArm', rightArm]]) {
-    const sleeve = id === 'leftArm' ? hoodie : hoodieLight;
-    makeMesh(id, group, [0.29, 0.56, 0.34], [0, -0.285, 0], sleeve, `${id} sleeve`);
-    makeMesh(id, group, [0.30, 0.1, 0.35], [0, -0.54, 0], hoodieDark, `${id} cuff`);
-    makeMesh(id, group, [0.235, 0.19, 0.27], [0, -0.675, 0.005], skin, `${id} hand`);
-    makeMesh(id, group, [0.18, 0.035, 0.22], [0, -0.62, 0.01], skinLight, `${id} wrist`);
+  function addMotionNode(jointName, partId) {
+    const joint = avatarRoot.getObjectByName(jointName)
+      || avatarRoot.getObjectByName(jointName.replace(/\s+/g, '_'));
+    if (!joint) throw new Error(`The supplied Bob rig is missing its ${jointName} joint.`);
+    const part = PART_BY_ID[partId];
+    const motion = new THREE.Group();
+    motion.name = `${part.node} motion`;
+    motion.userData.partId = partId;
+    const originalChildren = [...joint.children];
+    joint.add(motion);
+    for (const child of originalChildren) motion.add(child);
+    partObjects[partId] = motion;
   }
 
-  // LegLeftMesh and LegRightMesh include trousers and shoes.
-  for (const [id, group] of [['leftLeg', leftLeg], ['rightLeg', rightLeg]]) {
-    makeMesh(id, group, [0.31, 0.66, 0.35], [0, -0.32, 0], id === 'leftLeg' ? denim : denimLight, `${id} jeans`);
-    makeMesh(id, group, [0.31, 0.075, 0.36], [0, -0.605, 0], denimDark, `${id} hem`);
-    makeMesh(id, group, [0.35, 0.18, 0.43], [0, -0.715, 0.035], shoe, `${id} shoe`);
-    makeMesh(id, group, [0.31, 0.045, 0.39], [0, -0.785, 0.05], shoeTop, `${id} sole`);
-    makeMesh(id, group, [0.16, 0.026, 0.012], [0, -0.695, 0.254], denimDark, `${id} seam`);
-  }
+  // Keep the model's original anchor pivots, but place the six editor/export
+  // controls on identity wrappers so neutral keys do not overwrite bind offsets.
+  addMotionNode('Torso', 'torso');
+  addMotionNode('Head', 'head');
+  addMotionNode('Left shoulder', 'leftArm');
+  addMotionNode('Right shoulder', 'rightArm');
+  addMotionNode('Left hip', 'leftLeg');
+  addMotionNode('Right hip', 'rightLeg');
 
-  return avatarRoot;
+  avatarRoot.traverse((object) => {
+    if (!object.isMesh) return;
+    let ancestor = object;
+    while (ancestor && !ancestor.userData.partId) ancestor = ancestor.parent;
+    const partId = ancestor?.userData.partId;
+    if (!partId || !partMeshes[partId]) return;
+    object.userData.partId = partId;
+    partMeshes[partId].push(object);
+    pickMeshes.push(object);
+  });
 }
+
 
 function updateSelectionHelper() {
   if (!selectionHelper || !partMeshes[selectedPartId]) return;
@@ -1124,7 +1063,7 @@ function finishObjectTransform() {
   persistProject();
 }
 
-function initScene() {
+async function initScene() {
   const canvas = $('viewport');
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x131b24);
@@ -1132,7 +1071,7 @@ function initScene() {
 
   camera = new THREE.PerspectiveCamera(33, 1, 0.1, 70);
   camera.position.set(4.4, 3, 5.5);
-  camera.lookAt(0, 1.23, 0);
+  camera.lookAt(0, 1, 0);
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -1180,7 +1119,7 @@ function initScene() {
   ring.position.y = 0.004;
   scene.add(ring);
 
-  buildCharacter();
+  await buildCharacter();
   selectionHelper = new THREE.Box3Helper(new THREE.Box3(), 0xb9f36b);
   selectionHelper.material.transparent = true;
   selectionHelper.material.opacity = 0.92;
@@ -1189,7 +1128,7 @@ function initScene() {
   orbitControls = new OrbitControls(camera, renderer.domElement);
   orbitControls.enableDamping = true;
   orbitControls.dampingFactor = 0.075;
-  orbitControls.target.set(0, 1.23, 0);
+  orbitControls.target.set(0, 1, 0);
   orbitControls.minDistance = 3.1;
   orbitControls.maxDistance = 9.5;
   orbitControls.maxPolarAngle = Math.PI * 0.49;
@@ -1425,16 +1364,23 @@ function setupEvents() {
   }
 }
 
-function init() {
+async function init() {
   setupEvents();
   try {
-    initScene();
+    await initScene();
   } catch (error) {
-    console.error('3D preview could not be initialized.', error);
+    console.error('The supplied Bob preview could not be initialized.', error);
     const stage = $('stage');
     const message = document.createElement('div');
+    const heading = document.createElement('strong');
+    const detail = document.createElement('span');
+    const webglUnavailable = /webgl|context/i.test(String(error?.message || error));
     message.className = 'webgl-error';
-    message.innerHTML = '<strong>3D preview unavailable</strong><span>Try a browser with WebGL enabled. The animation editor and export still work.</span>';
+    heading.textContent = webglUnavailable ? '3D preview unavailable' : 'Bob model unavailable';
+    detail.textContent = webglUnavailable
+      ? 'Try a browser with WebGL enabled. The animation editor and export still work.'
+      : 'Could not load assets/bob-classic-rig.glb and its skin atlas. Check that the project is being served over HTTP.';
+    message.append(heading, detail);
     stage.append(message);
   }
   $('current-time').step = String(1 / state.fps);
@@ -1442,4 +1388,4 @@ function init() {
   persistProject();
 }
 
-init();
+void init();
