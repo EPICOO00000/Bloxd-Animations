@@ -8,6 +8,9 @@ const ALLOWED_INTERPOLATION = new Set(['catmullrom', 'linear', 'step']);
 const $ = (id) => document.getElementById(id);
 const NAME_WIDTH = 172;
 const TIMELINE_PAD = 10;
+const MAX_ANIMATE_ENTITY_ARGUMENT_CHARS = 1700;
+const MIN_ANIMATION_SEGMENT_SECONDS = 0.05;
+const MAX_ANIMATION_SEQUENCE_CLIPS = 240;
 
 const PARTS = [
   { id: 'torso', name: 'Torso', node: 'TorsoNode', color: '#81d2b0', icon: 'torso' },
@@ -267,15 +270,20 @@ function keyAtTime(time, partId = selectedPartId, tolerance = 0.0002) {
   return getPart(partId)?.keys.find((key) => Math.abs(key.time - time) <= tolerance) || null;
 }
 
-function interpolationAt(time, partId) {
-  const keys = sortedKeys(partId);
+function interpolationAtKeys(keys, time) {
   if (!keys.length) return 'catmullrom';
-  let previous = keys[0];
-  for (const key of keys) {
-    if (key.time > time) break;
-    previous = key;
+  let low = 0;
+  let high = keys.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (keys[middle].time <= time) low = middle + 1;
+    else high = middle;
   }
-  return previous.interpolation || 'catmullrom';
+  return keys[Math.max(0, low - 1)].interpolation || 'catmullrom';
+}
+
+function interpolationAt(time, partId) {
+  return interpolationAtKeys(sortedKeys(partId), time);
 }
 
 function catmullValue(p0, p1, p2, p3, t) {
@@ -296,13 +304,19 @@ function interpolateVector(a, b, t, mode, prev = null, next = null) {
   });
 }
 
-function samplePart(partId, time) {
-  const keys = sortedKeys(partId);
+function samplePartFromKeys(keys, time) {
   if (!keys.length) return { position: zeroVector(), rotation: zeroVector() };
   if (time <= keys[0].time) return { position: [...keys[0].position], rotation: [...keys[0].rotation] };
   if (time >= keys.at(-1).time) return { position: [...keys.at(-1).position], rotation: [...keys.at(-1).rotation] };
-  let rightIndex = keys.findIndex((key) => key.time >= time);
-  if (rightIndex <= 0) rightIndex = 1;
+
+  let low = 0;
+  let high = keys.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (keys[middle].time < time) low = middle + 1;
+    else high = middle;
+  }
+  const rightIndex = Math.max(1, low);
   const left = keys[rightIndex - 1];
   const right = keys[rightIndex];
   if (Math.abs(right.time - time) < 0.000001) return { position: [...right.position], rotation: [...right.rotation] };
@@ -314,6 +328,10 @@ function samplePart(partId, time) {
     position: interpolateVector(left.position, right.position, fraction, mode, previous.position, next.position),
     rotation: interpolateVector(left.rotation, right.rotation, fraction, mode, previous.rotation, next.rotation),
   };
+}
+
+function samplePart(partId, time) {
+  return samplePartFromKeys(sortedKeys(partId), time);
 }
 
 function snapTime(time) {
@@ -432,14 +450,14 @@ function renderParts() {
   }
 }
 
-function selectPart(partId, { renderTimeline = true } = {}) {
+function selectPart(partId, { renderTimeline: shouldRenderTimeline = true } = {}) {
   if (!PART_BY_ID[partId]) return;
   selectedPartId = partId;
   if (transformControls && partObjects[partId]) transformControls.attach(partObjects[partId]);
   applyPose(currentTime);
   renderParts();
   syncInspectorValues();
-  if (renderTimeline) renderTimeline();
+  if (shouldRenderTimeline) renderTimeline();
 }
 
 function updatePlayhead() {
@@ -824,40 +842,228 @@ function numberForExport(value) {
   return Object.is(n, -0) ? 0 : n;
 }
 
-function buildAnimationSchema() {
+function buildAnimationTrack(keys, channel) {
+  const values = keys.map((key) => key[channel].map(numberForExport));
+  const first = values[0];
+  const isConstant = values.every((value) => value.every((component, axis) => component === first[axis]));
+  if (isConstant) return first;
+
+  const timeline = {};
+  keys.forEach((key, index) => {
+    const time = String(numberForExport(key.time));
+    const value = values[index];
+    const previousKey = keys[index - 1];
+    const previousValue = values[index - 1];
+    const mode = key.interpolation || 'catmullrom';
+    let frame;
+
+    if (previousKey?.interpolation === 'step') {
+      // Blockbench pre/post points represent a hold followed by a jump, without
+      // using the unsupported `step` lerp_mode value.
+      frame = { pre: previousValue, post: value };
+    } else if (mode === 'catmullrom') {
+      frame = { post: value, lerp_mode: 'catmullrom' };
+    } else {
+      // A plain vector is the compact Blockbench shorthand for a linear point.
+      frame = value;
+    }
+
+    if (frame && !Array.isArray(frame) && mode === 'catmullrom' && !frame.lerp_mode) {
+      frame.lerp_mode = 'catmullrom';
+    }
+    timeline[time] = frame;
+  });
+  return timeline;
+}
+
+function sortedProjectKeys() {
+  return Object.fromEntries(PARTS.map((part) => [part.id, sortedKeys(part.id)]));
+}
+
+function buildAnimationSchemaForRange(startTime, endTime, loop = false, keysByPart = sortedProjectKeys()) {
+  const segmentDuration = Math.max(0.0001, numberForExport(endTime - startTime));
   const bones = {};
   for (const part of PARTS) {
-    const keys = sortedKeys(part.id);
-    if (!keys.length) continue;
-    const bone = { position: {}, rotation: {} };
-    for (const key of keys) {
-      const time = String(numberForExport(key.time));
-      const metadata = { lerp_mode: key.interpolation || 'catmullrom' };
-      bone.position[time] = { post: key.position.map(numberForExport), ...metadata };
-      bone.rotation[time] = { post: key.rotation.map(numberForExport), ...metadata };
+    const sourceKeys = keysByPart[part.id] || [];
+    if (!sourceKeys.length) continue;
+
+    const startPose = samplePartFromKeys(sourceKeys, startTime);
+    const segmentKeys = [{
+      time: 0,
+      position: startPose.position,
+      rotation: startPose.rotation,
+      interpolation: interpolationAtKeys(sourceKeys, startTime),
+    }];
+    let keyLow = 0;
+    let keyHigh = sourceKeys.length;
+    while (keyLow < keyHigh) {
+      const middle = (keyLow + keyHigh) >> 1;
+      if (sourceKeys[middle].time <= startTime + 0.00001) keyLow = middle + 1;
+      else keyHigh = middle;
     }
-    bones[part.node] = bone;
+    for (let keyIndex = keyLow; keyIndex < sourceKeys.length && sourceKeys[keyIndex].time < endTime - 0.00001; keyIndex += 1) {
+      const key = sourceKeys[keyIndex];
+      segmentKeys.push({
+        time: numberForExport(key.time - startTime),
+        position: [...key.position],
+        rotation: [...key.rotation],
+        interpolation: key.interpolation,
+      });
+    }
+    const endPose = samplePartFromKeys(sourceKeys, endTime);
+    segmentKeys.push({
+      time: segmentDuration,
+      position: endPose.position,
+      rotation: endPose.rotation,
+      interpolation: interpolationAtKeys(sourceKeys, endTime),
+    });
+
+    bones[part.node] = {
+      position: buildAnimationTrack(segmentKeys, 'position'),
+      rotation: buildAnimationTrack(segmentKeys, 'rotation'),
+    };
   }
   return {
-    animation_length: numberForExport(state.duration),
-    loop: Boolean(state.loop),
+    animation_length: segmentDuration,
+    loop: Boolean(loop),
     bones,
   };
 }
 
-function buildBloxdCode() {
-  const animation = buildAnimationSchema();
+function buildAnimationSchema(keysByPart = sortedProjectKeys()) {
+  return buildAnimationSchemaForRange(0, state.duration, state.loop, keysByPart);
+}
+
+function buildBloxdCode(animation = buildAnimationSchema()) {
   const name = state.name.replace(/[\r\n]+/g, ' ').replace(/\*\//g, '* /');
-  return `// ${name} · generated animation\n// Replace myId with the entity ID you want to animate.\nconst animation = ${JSON.stringify(animation, null, 2)};\napi.animateEntity(myId, animation);`;
+  return `// ${name} · generated animation\n// Replace myId with the entity ID you want to animate.\nconst animation = ${JSON.stringify(animation)};\napi.animateEntity(myId, animation);`;
+}
+
+function collectAnimationBoundaries(keysByPart) {
+  const times = new Set([0, numberForExport(state.duration)]);
+  for (const part of PARTS) {
+    for (const key of keysByPart[part.id] || []) {
+      if (key.time > 0 && key.time < state.duration) times.add(numberForExport(key.time));
+    }
+  }
+  return [...times].sort((a, b) => a - b);
+}
+
+function splitAnimationIntoClips(keysByPart) {
+  const boundaries = collectAnimationBoundaries(keysByPart);
+  const clips = [];
+  const argumentSizes = [];
+  let startIndex = 0;
+  const lastIndex = boundaries.length - 1;
+
+  while (startIndex < lastIndex) {
+    const startTime = boundaries[startIndex];
+    let bestEndIndex = -1;
+    let bestClip = null;
+    let bestSize = 0;
+
+    for (let endIndex = startIndex + 1; endIndex <= lastIndex; endIndex += 1) {
+      const endTime = boundaries[endIndex];
+      const isFinalClip = endIndex === lastIndex;
+      const remaining = state.duration - endTime;
+      if (!isFinalClip && endTime - startTime < MIN_ANIMATION_SEGMENT_SECONDS - 0.000001) continue;
+      if (!isFinalClip && remaining < MIN_ANIMATION_SEGMENT_SECONDS - 0.000001) continue;
+
+      const candidate = buildAnimationSchemaForRange(startTime, endTime, false, keysByPart);
+      const candidateSize = JSON.stringify(candidate).length;
+      if (candidateSize > MAX_ANIMATE_ENTITY_ARGUMENT_CHARS) break;
+      bestEndIndex = endIndex;
+      bestClip = candidate;
+      bestSize = candidateSize;
+    }
+
+    if (bestEndIndex < 0 || !bestClip) {
+      return {
+        ok: false,
+        reason: `A clip cannot fit below ${MAX_ANIMATE_ENTITY_ARGUMENT_CHARS} characters while lasting at least ${Math.round(MIN_ANIMATION_SEGMENT_SECONDS * 1000)} ms. Reduce key density or split the project into shorter animations.`,
+      };
+    }
+
+    clips.push(bestClip);
+    argumentSizes.push(bestSize);
+    if (clips.length > MAX_ANIMATION_SEQUENCE_CLIPS) {
+      return {
+        ok: false,
+        reason: `This motion needs more than ${MAX_ANIMATION_SEQUENCE_CLIPS} clips. Reduce its duration or key count before exporting.`,
+      };
+    }
+    startIndex = bestEndIndex;
+  }
+
+  return {
+    ok: true,
+    clips,
+    maxArgumentChars: Math.max(...argumentSizes),
+  };
+}
+
+function buildSequentialBloxdCode(clips) {
+  const name = state.name.replace(/[\r\n]+/g, ' ').replace(/\*\//g, '* /');
+  return `// ${name} · split sequential animation\n// Paste into World Code (F8), not a one-shot Code Block. Replace myId with the entity ID.\n// Each api.animateEntity call stays below the safe argument-size budget.\n(() => {\n  const entityId = myId;\n  const clips = ${JSON.stringify(clips)};\n  const shouldLoop = ${Boolean(state.loop)};\n  const previousTick = typeof tick === 'function' ? tick : null;\n  let clipIndex = 0;\n  let elapsedInClipMs = 0;\n  let active = true;\n\n  const playCurrentClip = (initialTimeFraction = 0) => {\n    api.animateEntity(entityId, clips[clipIndex], initialTimeFraction, 1);\n  };\n  playCurrentClip();\n\n  tick = (ms) => {\n    if (previousTick) previousTick(ms);\n    if (!active || !Number.isFinite(Number(ms))) return;\n    elapsedInClipMs += Math.max(0, Number(ms));\n    let advanced = false;\n\n    while (active) {\n      const durationMs = clips[clipIndex].animation_length * 1000;\n      if (elapsedInClipMs < durationMs) break;\n      elapsedInClipMs -= durationMs;\n      if (clipIndex === clips.length - 1) {\n        if (!shouldLoop) { active = false; break; }\n        clipIndex = 0;\n      } else {\n        clipIndex += 1;\n      }\n      advanced = true;\n    }\n\n    if (advanced && active) {\n      const nextDurationMs = clips[clipIndex].animation_length * 1000;\n      playCurrentClip(Math.min(0.999999, elapsedInClipMs / nextDurationMs));\n    }\n  };\n})();`;
+}
+
+function buildBloxdExport() {
+  const keysByPart = sortedProjectKeys();
+  const animation = buildAnimationSchema(keysByPart);
+  const argumentChars = JSON.stringify(animation).length;
+  const boneCount = Object.keys(animation.bones).length;
+  if (argumentChars <= MAX_ANIMATE_ENTITY_ARGUMENT_CHARS) {
+    return {
+      mode: 'single',
+      code: buildBloxdCode(animation),
+      boneCount,
+      argumentChars,
+    };
+  }
+
+  const split = splitAnimationIntoClips(keysByPart);
+  if (!split.ok) return { mode: 'blocked', reason: split.reason, boneCount, argumentChars };
+  if (split.clips.length === 1) {
+    return {
+      mode: 'single',
+      code: buildBloxdCode(split.clips[0]),
+      boneCount,
+      argumentChars: split.maxArgumentChars,
+    };
+  }
+  return {
+    mode: 'sequential',
+    code: buildSequentialBloxdCode(split.clips),
+    boneCount,
+    clipCount: split.clips.length,
+    maxArgumentChars: split.maxArgumentChars,
+  };
 }
 
 function openExport() {
-  const code = buildBloxdCode();
-  $('export-code').value = code;
-  const boneCount = Object.keys(buildAnimationSchema().bones).length;
-  $('export-summary').textContent = `${boneCount} bones · ${formatSeconds(state.duration)} seconds · ${state.loop ? 'looping' : 'one-shot'}`;
+  const exportData = buildBloxdExport();
+  const blocked = exportData.mode === 'blocked';
+  const instructions = $('export-instructions');
+  $('export-code').value = exportData.code || '';
+  if (exportData.mode === 'single') {
+    $('export-summary').textContent = `${exportData.boneCount} bones · ${formatSeconds(state.duration)} seconds · ${state.loop ? 'looping' : 'one-shot'} · ${exportData.argumentChars.toLocaleString()} chars`;
+    instructions.innerHTML = 'Paste this in a Bloxd code block to animate <code>myId</code>.';
+    $('export-footnote').textContent = 'Compact Blockbench schema; constant channels and linear points use the shortest valid form.';
+  } else if (exportData.mode === 'sequential') {
+    $('export-summary').textContent = `${exportData.clipCount} sequential clips · max ${exportData.maxArgumentChars.toLocaleString()} chars/call · ${formatSeconds(state.duration)} seconds`;
+    instructions.textContent = 'Paste into World Code (F8); a tick handler plays the clips in sequence.';
+    $('export-footnote').textContent = 'The tick wrapper chains an existing callback; clip boundary poses are sampled to keep motion continuous.';
+  } else {
+    $('export-summary').textContent = `Cannot split safely · ${exportData.argumentChars.toLocaleString()} chars`;
+    instructions.textContent = 'Reduce the key density or duration, then export again.';
+    $('export-footnote').textContent = exportData.reason;
+  }
+  $('export-summary').classList.toggle('is-warning', blocked);
+  $('copy-code').disabled = blocked;
+  $('download-code').disabled = blocked;
   $('export-modal').hidden = false;
-  $('copy-code').focus();
+  if (blocked) $('close-export').focus();
+  else $('copy-code').focus();
 }
 
 function closeExport() {
@@ -943,36 +1149,17 @@ function renderAll() {
 // --- Three.js character preview ------------------------------------------------
 async function buildCharacter() {
   const loader = new GLTFLoader();
-  const [gltf, skinTexture] = await Promise.all([
-    loader.loadAsync('./assets/bob-classic-rig.glb'),
-    new THREE.TextureLoader().loadAsync('./assets/bob-classic-skin.png'),
-  ]);
+  const gltf = await loader.loadAsync('./assets/bob-classic-rig.glb');
   const avatarRoot = gltf.scene;
   avatarRoot.name = 'Bob · supplied classic rig';
 
-  skinTexture.colorSpace = THREE.SRGBColorSpace;
-  skinTexture.flipY = false;
-  skinTexture.wrapS = THREE.ClampToEdgeWrapping;
-  skinTexture.wrapT = THREE.ClampToEdgeWrapping;
-  skinTexture.magFilter = THREE.NearestFilter;
-  skinTexture.minFilter = THREE.NearestFilter;
-  skinTexture.generateMipmaps = false;
-  skinTexture.needsUpdate = true;
-
+  // Keep the supplied GLB's embedded texture and material settings intact.
+  // Its separate companion PNG has a different image orientation; replacing
+  // the embedded map here would make the model's UV-mapped skin look wrong.
   avatarRoot.traverse((object) => {
     if (!object.isMesh) return;
     object.castShadow = true;
     object.receiveShadow = true;
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    for (const mat of materials) {
-      if (!mat) continue;
-      mat.map = skinTexture;
-      mat.color.set(0xffffff);
-      mat.roughness = 1;
-      mat.metalness = 0;
-      mat.alphaTest = Math.max(mat.alphaTest || 0, 0.5);
-      mat.needsUpdate = true;
-    }
   });
 
   const sourceBounds = new THREE.Box3().setFromObject(avatarRoot);
@@ -1260,7 +1447,14 @@ function setupEvents() {
     showToast('Bloxd code copied to clipboard');
     window.setTimeout(() => { button.querySelector('span').textContent = 'Copy code'; }, 1500);
   });
-  $('download-code').addEventListener('click', () => downloadFile(`${filenameBase()}.js`, 'text/javascript', buildBloxdCode()));
+  $('download-code').addEventListener('click', () => {
+    const exportData = buildBloxdExport();
+    if (exportData.mode === 'blocked') {
+      showToast('This animation still exceeds the safe export limit');
+      return;
+    }
+    downloadFile(`${filenameBase()}.js`, 'text/javascript', exportData.code);
+  });
 
   fields.forEach((input) => {
     input.addEventListener('focus', () => {
