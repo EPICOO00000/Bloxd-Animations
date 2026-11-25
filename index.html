@@ -165,12 +165,12 @@
   <div class="modal-backdrop" id="export-modal" hidden>
     <section class="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
       <div class="dialog-heading">
-        <div><span class="eyebrow">READY FOR BLOXD</span><h2 id="export-title">Export animation code</h2><p>Paste this in a Bloxd code block to animate <code>myId</code>.</p></div>
+        <div><span class="eyebrow">READY FOR BLOXD</span><h2 id="export-title">Export animation code</h2><p id="export-instructions">Paste this in a Bloxd code block to animate <code>myId</code>.</p></div>
         <button type="button" id="close-export" class="icon-button" aria-label="Close export dialog" title="Close"><svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></svg></button>
       </div>
       <div class="export-meta"><span class="export-dot"></span><span id="export-summary">6 bones · 2.00 seconds · looping</span><span class="api-badge">api.animateEntity</span></div>
       <textarea id="export-code" spellcheck="false" readonly aria-label="Generated Bloxd animation code"></textarea>
-      <div class="dialog-footer"><span class="export-footnote">Uses Bloxd's native body-part nodes and animation schema.</span><div><button type="button" class="button button-quiet" id="download-code">Download .js</button><button type="button" class="button button-primary" id="copy-code"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6V3.5h9.5V13H14M3.5 7H13v9.5H3.5z"/></svg><span>Copy code</span></button></div></div>
+      <div class="dialog-footer"><span id="export-footnote" class="export-footnote">Compact Blockbench schema; constant channels and linear points use the shortest valid form.</span><div><button type="button" class="button button-quiet" id="download-code">Download .js</button><button type="button" class="button button-primary" id="copy-code"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6V3.5h9.5V13H14M3.5 7H13v9.5H3.5z"/></svg><span>Copy code</span></button></div></div>
     </section>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

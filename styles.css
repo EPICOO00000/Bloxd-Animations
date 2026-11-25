@@ -284,6 +284,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .dialog-heading p code { color: #c6e4a4; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .dialog-heading .icon-button { border: 1px solid #323b49; background: #171e27; }
 .export-meta { display: flex; align-items: center; gap: 7px; margin: 18px 0 8px; color: #8995a3; font-size: 10px; }
+.export-meta #export-summary.is-warning { color: #f0ad76; }
 .export-dot { width: 6px; height: 6px; }
 .api-badge { margin-left: auto; padding: 4px 7px; border: 1px solid #303c45; border-radius: 5px; color: #a9d4bf; background: rgba(118, 224, 197, .05); font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
 #export-code { width: 100%; min-height: 200px; flex: 1; resize: vertical; padding: 14px; border: 1px solid #303946; border-radius: 8px; color: #d6e2d4; background: #0c1218; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; white-space: pre; }

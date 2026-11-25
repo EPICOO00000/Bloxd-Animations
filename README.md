@@ -18,9 +18,9 @@ Then open `http://localhost:8000`.
 - Use the Move/Rotate gizmo or the numeric inspector to pose the selected bone.
 - Scrub the timeline, press **K** or click **Add keyframe**, and drag diamonds to retime keys. Playback: **Space**. Move/rotate: **W/E**. Previous/next frame: **←/→**.
 - With Auto Key enabled, edits create/update a key at the playhead. Turn it off to edit existing keys only.
-- **Export code** produces a Bloxd `api.animateEntity(myId, animation)` snippet. Save/Open use `.bloxdanim.json` project files; edits are also autosaved in the current browser.
+- **Export code** produces a compact Bloxd `api.animateEntity` snippet and shows its argument size. Constant transform channels and linear keys use Blockbench's compact point form. If one call would be too large, the exporter splits the motion into sequential clips, each under the safe per-call budget, and generates a World Code `tick` wrapper to play them in order. If the key density cannot be split safely, it blocks the export and explains what to reduce. Save/Open use `.bloxdanim.json` project files; edits are also autosaved in the current browser.
 
-The 3D preview loads the supplied classic Bob rig and 64×64 skin atlas from `assets/`. The imported model's pivots and geometry are retained; identity wrappers connect its torso, head, shoulders, and hips to the editor's six Bloxd animation/export nodes. The studio does not add procedural face or clothing geometry. See [`assets/README.md`](assets/README.md) for the source and provenance note.
+The 3D preview loads the supplied classic Bob GLB from `assets/` and keeps its embedded atlas and materials unchanged. The standalone companion PNG is retained as supplied but is not reapplied to the model. The imported model's pivots and geometry are retained; identity wrappers connect its torso, head, shoulders, and hips to the editor's six Bloxd animation/export nodes. The studio does not add procedural face or clothing geometry. See [`assets/README.md`](assets/README.md) for the source and provenance note.
 
 Three.js, GLTFLoader, BufferGeometryUtils, OrbitControls, and TransformControls are bundled locally under `vendor/`; see `vendor/LICENSE-three.txt` for their MIT license.
 
