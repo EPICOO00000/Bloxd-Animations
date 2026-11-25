@@ -13,12 +13,12 @@ const MIN_ANIMATION_SEGMENT_SECONDS = 0.05;
 const MAX_ANIMATION_SEQUENCE_CLIPS = 240;
 
 const PARTS = [
-  { id: 'torso', name: 'Torso', node: 'TorsoNode', color: '#81d2b0', icon: 'torso' },
-  { id: 'head', name: 'Head', node: 'HeadMesh', color: '#f2be70', icon: 'head' },
-  { id: 'leftArm', name: 'Left arm', node: 'ArmLeftMesh', color: '#86baff', icon: 'arm' },
-  { id: 'rightArm', name: 'Right arm', node: 'ArmRightMesh', color: '#69d5ca', icon: 'arm' },
-  { id: 'leftLeg', name: 'Left leg', node: 'LegLeftMesh', color: '#bf9bf3', icon: 'leg' },
-  { id: 'rightLeg', name: 'Right leg', node: 'LegRightMesh', color: '#f095a4', icon: 'leg' },
+  { id: 'torso', name: 'Torso', node: 'TorsoNode', color: '#7f9888', icon: 'torso' },
+  { id: 'head', name: 'Head', node: 'HeadMesh', color: '#b99a72', icon: 'head' },
+  { id: 'leftArm', name: 'Left arm', node: 'ArmLeftMesh', color: '#7f96a0', icon: 'arm' },
+  { id: 'rightArm', name: 'Right arm', node: 'ArmRightMesh', color: '#78988f', icon: 'arm' },
+  { id: 'leftLeg', name: 'Left leg', node: 'LegLeftMesh', color: '#9b8fa5', icon: 'leg' },
+  { id: 'rightLeg', name: 'Right leg', node: 'LegRightMesh', color: '#b68780', icon: 'leg' },
 ];
 const PART_BY_ID = Object.fromEntries(PARTS.map((part) => [part.id, part]));
 
@@ -401,8 +401,8 @@ function updateKeyStatus() {
   const exact = chooseExactKey();
   selectedKeyTime = exact ? exact.time : null;
   $('key-status').textContent = exact
-    ? `KEY AT ${formatSeconds(exact.time)}s`
-    : `NO KEY AT ${formatSeconds(currentTime)}s`;
+    ? `Key at ${formatSeconds(exact.time)}s`
+    : `No key at ${formatSeconds(currentTime)}s`;
   $('add-key').disabled = Boolean(exact);
   $('add-key').title = exact ? 'There is already a keyframe at this time' : 'Add a keyframe for the selected part (K)';
   if (exact) $('interpolation-select').value = exact.interpolation;
@@ -424,7 +424,7 @@ function syncInspectorValues() {
   }
   $('auto-key-toggle').classList.toggle('is-on', state.autoKey);
   $('auto-key-toggle').setAttribute('aria-pressed', String(state.autoKey));
-  $('auto-key-toggle').querySelector('.toggle-state').textContent = state.autoKey ? 'ON' : 'OFF';
+  $('auto-key-toggle').querySelector('.toggle-state').textContent = state.autoKey ? 'On' : 'Off';
   updateKeyStatus();
 }
 
@@ -1134,7 +1134,7 @@ function renderAll() {
   $('loop-toggle').setAttribute('aria-pressed', String(state.loop));
   $('auto-key-toggle').classList.toggle('is-on', state.autoKey);
   $('auto-key-toggle').setAttribute('aria-pressed', String(state.autoKey));
-  $('auto-key-toggle').querySelector('.toggle-state').textContent = state.autoKey ? 'ON' : 'OFF';
+  $('auto-key-toggle').querySelector('.toggle-state').textContent = state.autoKey ? 'On' : 'Off';
   $('snap-toggle').classList.toggle('is-on', snapEnabled);
   $('snap-toggle').setAttribute('aria-pressed', String(snapEnabled));
   renderParts();
@@ -1253,8 +1253,8 @@ function finishObjectTransform() {
 async function initScene() {
   const canvas = $('viewport');
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x131b24);
-  scene.fog = new THREE.Fog(0x131b24, 8.5, 18);
+  scene.background = new THREE.Color(0xd1d8ce);
+  scene.fog = new THREE.Fog(0xd1d8ce, 8.5, 18);
 
   camera = new THREE.PerspectiveCamera(33, 1, 0.1, 70);
   camera.position.set(4.4, 3, 5.5);
@@ -1268,8 +1268,8 @@ async function initScene() {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  scene.add(new THREE.HemisphereLight(0xc9ddf0, 0x27272c, 1.6));
-  const keyLight = new THREE.DirectionalLight(0xffe3c3, 3.2);
+  scene.add(new THREE.HemisphereLight(0xfaf1df, 0x7f8779, 1.75));
+  const keyLight = new THREE.DirectionalLight(0xffe9cf, 3);
   keyLight.position.set(-3.5, 6.5, 4.5);
   keyLight.castShadow = true;
   keyLight.shadow.mapSize.set(1024, 1024);
@@ -1279,35 +1279,35 @@ async function initScene() {
   keyLight.shadow.camera.bottom = -2;
   keyLight.shadow.bias = -0.00045;
   scene.add(keyLight);
-  const fill = new THREE.DirectionalLight(0x82b9e9, 1.25);
+  const fill = new THREE.DirectionalLight(0xa9c1b2, 0.9);
   fill.position.set(4, 3, -3.5);
   scene.add(fill);
-  const faceFill = new THREE.PointLight(0xbbe8dc, 0.5, 8);
+  const faceFill = new THREE.PointLight(0xd7e6cf, 0.38, 8);
   faceFill.position.set(0, 2.2, 3.5);
   scene.add(faceFill);
 
-  const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x1a2027, roughness: 0.96, metalness: 0.02 });
+  const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xb8c0b3, roughness: 0.98, metalness: 0.01 });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), floorMaterial);
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.015;
   floor.receiveShadow = true;
   scene.add(floor);
-  const grid = new THREE.GridHelper(14, 28, 0x64756f, 0x46545a);
+  const grid = new THREE.GridHelper(14, 28, 0x778476, 0x9eaa9b);
   grid.position.y = 0.002;
   grid.material.transparent = true;
-  grid.material.opacity = 0.28;
+  grid.material.opacity = 0.18;
   grid.material.depthWrite = false;
   scene.add(grid);
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(1.08, 1.105, 64),
-    new THREE.MeshBasicMaterial({ color: 0x72bfa7, transparent: true, opacity: 0.21, side: THREE.DoubleSide, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: 0x899a7e, transparent: true, opacity: 0.17, side: THREE.DoubleSide, depthWrite: false }),
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.004;
   scene.add(ring);
 
   await buildCharacter();
-  selectionHelper = new THREE.Box3Helper(new THREE.Box3(), 0xb9f36b);
+  selectionHelper = new THREE.Box3Helper(new THREE.Box3(), 0x788c70);
   selectionHelper.material.transparent = true;
   selectionHelper.material.opacity = 0.92;
   scene.add(selectionHelper);
@@ -1414,6 +1414,32 @@ async function initScene() {
 }
 
 function setupEvents() {
+  const inspectorTabs = [...document.querySelectorAll('.inspector-tab')];
+  const inspectorPanels = [...document.querySelectorAll('.inspector-tab-panel')];
+  const activateInspectorTab = (activeIndex, focusTab = false) => {
+    inspectorTabs.forEach((tab, index) => {
+      const isActive = index === activeIndex;
+      tab.setAttribute('aria-selected', String(isActive));
+      tab.tabIndex = isActive ? 0 : -1;
+      inspectorPanels[index].hidden = !isActive;
+    });
+    if (focusTab) inspectorTabs[activeIndex].focus();
+  };
+  inspectorTabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => activateInspectorTab(index));
+    tab.addEventListener('keydown', (event) => {
+      let nextIndex = index;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % inspectorTabs.length;
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + inspectorTabs.length) % inspectorTabs.length;
+      else if (event.key === 'Home') nextIndex = 0;
+      else if (event.key === 'End') nextIndex = inspectorTabs.length - 1;
+      else return;
+      event.preventDefault();
+      event.stopPropagation();
+      activateInspectorTab(nextIndex, true);
+    });
+  });
+
   $('project-name').addEventListener('focus', recordHistory);
   $('project-name').addEventListener('input', (event) => {
     state.name = String(event.target.value).slice(0, 48);
